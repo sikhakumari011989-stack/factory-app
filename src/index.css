@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    --color-factory-dark: #090d16;
+    --color-factory-card: #0f172a;
+    --color-factory-border: #1e293b;
+  }
+  
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased min-h-screen font-sans selection:bg-emerald-500/30 selection:text-emerald-200;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Custom industrial scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #060910;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+  border: 1px solid #334155;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* High-tech scanner laser animation */
+@keyframes laserSweep {
+  0% {
+    top: 8%;
+    opacity: 0.9;
+    box-shadow: 0 0 16px #10b981, 0 0 24px #10b981;
+  }
+  50% {
+    top: 92%;
+    opacity: 1;
+    box-shadow: 0 0 20px #06b6d4, 0 0 32px #06b6d4;
+  }
+  100% {
+    top: 8%;
+    opacity: 0.9;
+    box-shadow: 0 0 16px #10b981, 0 0 24px #10b981;
+  }
+}
+
+.animate-laser {
+  animation: laserSweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Subtle CRT scanline overlay */
+.scanner-scanline {
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0) 50%,
+    rgba(0, 0, 0, 0.3) 50%,
+    rgba(0, 0, 0, 0.3)
+  );
+  background-size: 100% 4px;
+}
+
+/* Print Styles for Worker Badges */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-badge, #printable-badge * {
+    visibility: visible;
+  }
+  #printable-badge {
+    position: absolute;
+    left: 50%;
+    top: 20%;
+    transform: translate(-50%, -20%);
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+  }
+}
