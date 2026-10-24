@@ -1,8 +1,13 @@
-const CACHE_NAME = 'factory-sync-v1';
+const CACHE_NAME = 'factory-sync-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.webmanifest'
+  '/manifest.json',
+  '/manifest.webmanifest',
+  '/favicon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {

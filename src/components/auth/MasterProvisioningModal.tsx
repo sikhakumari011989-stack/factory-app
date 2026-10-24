@@ -12,15 +12,22 @@ import {
   Sparkles,
   X,
   ArrowRight,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { ProvisionedTenant } from '../../types';
+import { ProvisionedTenant, SubscriptionStatus } from '../../types';
 
 interface MasterProvisioningModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccessLogin?: () => void;
 }
+
+const getDefault30DaysExpiry = (): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  return d.toISOString().split('T')[0];
+};
 
 export const MasterProvisioningModal: React.FC<MasterProvisioningModalProps> = ({
   isOpen,
@@ -35,6 +42,8 @@ export const MasterProvisioningModal: React.FC<MasterProvisioningModalProps> = (
   const [ownerName, setOwnerName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [password, setPassword] = useState('Tarapur@2026');
+  const [subscriptionExpiryDate, setSubscriptionExpiryDate] = useState<string>(getDefault30DaysExpiry());
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>('active');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [provisionedResult, setProvisionedResult] = useState<ProvisionedTenant | null>(null);
@@ -71,6 +80,9 @@ export const MasterProvisioningModal: React.FC<MasterProvisioningModalProps> = (
         ownerName: ownerName.trim(),
         ownerEmail: ownerEmail.trim().toLowerCase(),
         password: password.trim() || 'Factory@123',
+        subscriptionStatus,
+        subscriptionExpiryDate,
+        isLocked: false,
         currency: '₹',
       });
       setProvisionedResult(result);
@@ -84,7 +96,7 @@ export const MasterProvisioningModal: React.FC<MasterProvisioningModalProps> = (
 
   const handleCopyCredentials = () => {
     if (!provisionedResult) return;
-    const text = `FactorySync Credentials:\nCompany: ${provisionedResult.tenant.name}\nCode: ${provisionedResult.tenant.code}\nOwner: ${provisionedResult.ownerName}\nEmail: ${provisionedResult.ownerEmail}\nPassword: ${provisionedResult.temporaryPassword}\nLogin URL: ${window.location.origin}`;
+    const text = `FactorySync Credentials:\nCompany: ${provisionedResult.tenant.name}\nCode: ${provisionedResult.tenant.code}\nOwner: ${provisionedResult.ownerName}\nEmail: ${provisionedResult.ownerEmail}\nPassword: ${provisionedResult.temporaryPassword}\nSubscription Expiry: ${provisionedResult.tenant.subscriptionExpiryDate || subscriptionExpiryDate}\nLogin URL: ${window.location.origin}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -161,6 +173,12 @@ export const MasterProvisioningModal: React.FC<MasterProvisioningModalProps> = (
               <div className="flex justify-between">
                 <span className="text-slate-500">Password:</span>
                 <span className="text-amber-400 font-bold">{provisionedResult.temporaryPassword}</span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-800/80">
+                <span className="text-slate-500">Subscription Expiry:</span>
+                <span className="text-emerald-400 font-bold font-mono">
+                  {provisionedResult.tenant.subscriptionExpiryDate || subscriptionExpiryDate}
+                </span>
               </div>
             </div>
 
@@ -264,6 +282,42 @@ export const MasterProvisioningModal: React.FC<MasterProvisioningModalProps> = (
                       className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300 flex items-center justify-between">
+                    <span>Subscription Expiry Date *</span>
+                    <span className="text-[10px] text-amber-400 font-mono">Manual Control</span>
+                  </label>
+                  <div className="relative">
+                    <Calendar className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="date"
+                      required
+                      value={subscriptionExpiryDate}
+                      onChange={(e) => setSubscriptionExpiryDate(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 font-mono focus:outline-none focus:border-amber-500 text-xs"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-500 block">
+                    Defaults to 30 days. Locks factory when date passes.
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300">Initial Subscription Status</label>
+                  <select
+                    value={subscriptionStatus}
+                    onChange={(e) => setSubscriptionStatus(e.target.value as SubscriptionStatus)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-indigo-500 text-xs cursor-pointer font-semibold"
+                  >
+                    <option value="active">Active (Full Commercial License)</option>
+                    <option value="trial">Trial (Evaluation Access)</option>
+                    <option value="suspended">Suspended (Temporarily Frozen)</option>
+                    <option value="canceled">Canceled (Completely Blocked)</option>
+                  </select>
                 </div>
               </div>
 

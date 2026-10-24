@@ -4,8 +4,14 @@ export const INITIAL_TENANT: Tenant = {
   id: 'tenant-apex-1',
   name: 'Apex Heavy Engineering & Castings Plant',
   code: 'APEX-P1',
-  location: 'MIDC Industrial Estate, Pune, India',
+  location: 'MIDC Tarapur Industrial Estate, Boisar, Palghar',
   currency: '₹',
+  ownerEmail: 'admin@apexfactory.com',
+  ownerName: 'Vikramaditya Singhania',
+  phone: '+91 98200 11223',
+  subscriptionStatus: 'active',
+  subscriptionExpiryDate: '2027-12-31',
+  isLocked: false,
 };
 
 export const DEFAULT_FALLBACK_SHIFT: Shift = {

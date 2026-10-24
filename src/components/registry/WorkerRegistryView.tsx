@@ -196,7 +196,7 @@ export const WorkerRegistryView: React.FC = () => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full min-w-[850px] text-left text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800">
                 <tr>
                   <th className="py-3.5 px-4">Contractor Agency</th>
@@ -338,7 +338,7 @@ export const WorkerRegistryView: React.FC = () => {
 
           {/* Table */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
+            <table className="w-full min-w-[850px] text-left text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800">
                 <tr>
                   <th className="py-3.5 px-4">Worker</th>

@@ -16,12 +16,14 @@ import {
   INITIAL_CONTRACTORS,
   INITIAL_SHIFTS,
   INITIAL_WORKERS,
+  INITIAL_TENANT,
   getInitialActivePunches,
   getInitialHistoricalShifts,
 } from '../utils/mockData';
 import { calculateShiftWage } from '../utils/wageEngine';
 import { OfflineQueueManager } from '../lib/offlineQueue';
 import { isFirebaseConfigured } from '../lib/firebase';
+import { useAuth } from './AuthContext';
 import {
   saveWorkerToFirestore,
   deleteWorkerFromFirestore,
@@ -59,11 +61,22 @@ interface FactoryContextType {
     method?: PunchMethod,
     photoUrl?: string
   ) => { success: boolean; worker?: Worker; punch?: TimePunch; message?: string };
+  toggleAttendance: (workerId: string) => { success: boolean; isPresent: boolean; message?: string };
+  markAllAttendance: (present: boolean) => number;
   forceClockOut: (workerId: string) => void;
   runAutoCheckoutSafetyCheck: () => number;
 
   // Worker CRUD
   addWorker: (worker: Omit<Worker, 'id'>) => void;
+  bulkAddWorkers: (
+    newWorkerList: {
+      name: string;
+      phone?: string;
+      dailyWage?: number;
+      baseHourlyRate?: number;
+      department?: string;
+    }[]
+  ) => number;
   updateWorker: (id: string, updates: Partial<Worker>) => void;
   deleteWorker: (id: string) => void;
 
@@ -94,96 +107,78 @@ interface FactoryContextType {
 const FactoryContext = createContext<FactoryContextType | undefined>(undefined);
 
 export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Workers: initialized as empty array [], stripping out any old mock seed data
+  const { tenant } = useAuth();
+  const currentTenantId = tenant?.id || INITIAL_TENANT.id;
+
+  // Workers: strictly scoped to current tenant
   const [workers, setWorkers] = useState<Worker[]>(() => {
     try {
-      const saved = localStorage.getItem('factory_workers');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // If stored data contains the legacy mock workers (wrk-101 etc.), purge them
-          const hasLegacyMock = parsed.some((w: Worker) => w.id && w.id.startsWith('wrk-10'));
-          if (!hasLegacyMock) return parsed;
-        }
-      }
+      const saved = localStorage.getItem(`factory_workers_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_workers') : null);
+      if (saved) return JSON.parse(saved);
     } catch {
       // fallback
     }
     return INITIAL_WORKERS;
   });
 
-  // Shifts: initialized as empty array [], stripping out legacy seed data
+  // Shifts: strictly scoped to current tenant
   const [shifts, setShifts] = useState<Shift[]>(() => {
     try {
-      const saved = localStorage.getItem('factory_shifts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const hasLegacyMock = parsed.some((s: Shift) => s.id && s.id.startsWith('shf-morning'));
-          if (!hasLegacyMock) return parsed;
-        }
-      }
+      const saved = localStorage.getItem(`factory_shifts_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_shifts') : null);
+      if (saved) return JSON.parse(saved);
     } catch {
       // fallback
     }
     return INITIAL_SHIFTS;
   });
 
-  // Contractors: initialized as empty array [], stripping out legacy seed data
+  // Contractors: strictly scoped to current tenant
   const [contractors, setContractors] = useState<Contractor[]>(() => {
     try {
-      const saved = localStorage.getItem('factory_contractors');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const hasLegacyMock = parsed.some((c: Contractor) => c.id && c.id.startsWith('cnt-'));
-          if (!hasLegacyMock) return parsed;
-        }
-      }
+      const saved = localStorage.getItem(`factory_contractors_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_contractors') : null);
+      if (saved) return JSON.parse(saved);
     } catch {
       // fallback
     }
     return INITIAL_CONTRACTORS;
   });
 
-  // Time punches: initialized as empty array []
+  // Time punches: strictly scoped to current tenant
   const [timePunches, setTimePunches] = useState<TimePunch[]>(() => {
     try {
-      const saved = localStorage.getItem('factory_punches');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const hasLegacyMock = parsed.some((p: TimePunch) => p.id && p.id.startsWith('punch-active-'));
-          if (!hasLegacyMock) return parsed;
-        }
-      }
+      const saved = localStorage.getItem(`factory_punches_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_punches') : null);
+      if (saved) return JSON.parse(saved);
     } catch {
       // fallback
     }
     return getInitialActivePunches();
   });
 
-  // Completed shift records: initialized as empty array []
+  // Completed shift records: strictly scoped to current tenant
   const [shiftRecords, setShiftRecords] = useState<ShiftRecord[]>(() => {
     try {
-      const saved = localStorage.getItem('factory_shift_records');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const hasLegacyMock = parsed.some((r: ShiftRecord) => r.id && r.id.startsWith('rec-hist-'));
-          if (!hasLegacyMock) return parsed;
-        }
-      }
+      const saved = localStorage.getItem(`factory_shift_records_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_shift_records') : null);
+      if (saved) return JSON.parse(saved);
     } catch {
       // fallback
     }
     return getInitialHistoricalShifts();
   });
 
-  // Paid worker map for weekly payroll tracking { workerId: ISO timestamp }
+  // Paid worker map for weekly payroll tracking: strictly scoped to current tenant
   const [paidStatusMap, setPaidStatusMap] = useState<Record<string, string>>(() => {
-    const saved = localStorage.getItem('factory_paid_status_map');
-    return saved ? JSON.parse(saved) : {};
+    try {
+      const saved = localStorage.getItem(`factory_paid_status_map_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_paid_status_map') : null);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
   });
 
   // Offline simulation state
@@ -201,56 +196,123 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => clearInterval(timer);
   }, []);
 
-  // Cloud Firestore Real-Time Synchronization
+  // Whenever tenant changes: reload cached state and resubscribe to Firestore for that tenant
   useEffect(() => {
+    if (!currentTenantId) return;
+
+    // Load from isolated LocalStorage
+    try {
+      const savedWorkers = localStorage.getItem(`factory_workers_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_workers') : null);
+      setWorkers(savedWorkers ? JSON.parse(savedWorkers) : []);
+    } catch {
+      setWorkers([]);
+    }
+
+    try {
+      const savedShifts = localStorage.getItem(`factory_shifts_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_shifts') : null);
+      setShifts(savedShifts ? JSON.parse(savedShifts) : []);
+    } catch {
+      setShifts([]);
+    }
+
+    try {
+      const savedContractors = localStorage.getItem(`factory_contractors_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_contractors') : null);
+      setContractors(savedContractors ? JSON.parse(savedContractors) : []);
+    } catch {
+      setContractors([]);
+    }
+
+    try {
+      const savedPunches = localStorage.getItem(`factory_punches_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_punches') : null);
+      setTimePunches(savedPunches ? JSON.parse(savedPunches) : []);
+    } catch {
+      setTimePunches([]);
+    }
+
+    try {
+      const savedRecords = localStorage.getItem(`factory_shift_records_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_shift_records') : null);
+      setShiftRecords(savedRecords ? JSON.parse(savedRecords) : []);
+    } catch {
+      setShiftRecords([]);
+    }
+
+    try {
+      const savedPaid = localStorage.getItem(`factory_paid_status_map_${currentTenantId}`) ||
+        (currentTenantId === INITIAL_TENANT.id ? localStorage.getItem('factory_paid_status_map') : null);
+      setPaidStatusMap(savedPaid ? JSON.parse(savedPaid) : {});
+    } catch {
+      setPaidStatusMap({});
+    }
+
+    // Cloud Firestore Real-Time Synchronization for this active tenant
     if (!isFirebaseConfigured()) return;
 
-    getShiftsFromFirestore().then((remoteShifts) => {
-      if (remoteShifts && remoteShifts.length > 0) setShifts(remoteShifts);
+    let isCurrent = true;
+
+    getShiftsFromFirestore(currentTenantId).then((remoteShifts) => {
+      if (isCurrent && remoteShifts && remoteShifts.length > 0) setShifts(remoteShifts);
     });
 
-    getContractorsFromFirestore().then((remoteContractors) => {
-      if (remoteContractors && remoteContractors.length > 0) setContractors(remoteContractors);
+    getContractorsFromFirestore(currentTenantId).then((remoteContractors) => {
+      if (isCurrent && remoteContractors && remoteContractors.length > 0) setContractors(remoteContractors);
     });
 
     const unsubWorkers = subscribeToWorkers((remoteWorkers) => {
-      if (remoteWorkers && remoteWorkers.length > 0) setWorkers(remoteWorkers);
-    });
+      if (isCurrent && remoteWorkers) setWorkers(remoteWorkers);
+    }, currentTenantId);
 
     const unsubPunches = subscribeToPunches((remotePunches) => {
-      if (remotePunches && remotePunches.length > 0) setTimePunches(remotePunches);
-    });
+      if (isCurrent && remotePunches) setTimePunches(remotePunches);
+    }, currentTenantId);
 
     return () => {
+      isCurrent = false;
       unsubWorkers();
       unsubPunches();
     };
-  }, []);
+  }, [currentTenantId]);
 
-  // Save to localStorage
+  // Save to isolated localStorage scoped by tenant.id
   useEffect(() => {
-    localStorage.setItem('factory_workers', JSON.stringify(workers));
-  }, [workers]);
-
-  useEffect(() => {
-    localStorage.setItem('factory_shifts', JSON.stringify(shifts));
-  }, [shifts]);
+    if (currentTenantId) {
+      localStorage.setItem(`factory_workers_${currentTenantId}`, JSON.stringify(workers));
+    }
+  }, [workers, currentTenantId]);
 
   useEffect(() => {
-    localStorage.setItem('factory_contractors', JSON.stringify(contractors));
-  }, [contractors]);
+    if (currentTenantId) {
+      localStorage.setItem(`factory_shifts_${currentTenantId}`, JSON.stringify(shifts));
+    }
+  }, [shifts, currentTenantId]);
 
   useEffect(() => {
-    localStorage.setItem('factory_punches', JSON.stringify(timePunches));
-  }, [timePunches]);
+    if (currentTenantId) {
+      localStorage.setItem(`factory_contractors_${currentTenantId}`, JSON.stringify(contractors));
+    }
+  }, [contractors, currentTenantId]);
 
   useEffect(() => {
-    localStorage.setItem('factory_shift_records', JSON.stringify(shiftRecords));
-  }, [shiftRecords]);
+    if (currentTenantId) {
+      localStorage.setItem(`factory_punches_${currentTenantId}`, JSON.stringify(timePunches));
+    }
+  }, [timePunches, currentTenantId]);
 
   useEffect(() => {
-    localStorage.setItem('factory_paid_status_map', JSON.stringify(paidStatusMap));
-  }, [paidStatusMap]);
+    if (currentTenantId) {
+      localStorage.setItem(`factory_shift_records_${currentTenantId}`, JSON.stringify(shiftRecords));
+    }
+  }, [shiftRecords, currentTenantId]);
+
+  useEffect(() => {
+    if (currentTenantId) {
+      localStorage.setItem(`factory_paid_status_map_${currentTenantId}`, JSON.stringify(paidStatusMap));
+    }
+  }, [paidStatusMap, currentTenantId]);
 
   // Fast lookups with safe fallbacks
   const getWorkerById = useCallback((id: string) => workers.find((w) => w.id === id), [workers]);
@@ -409,6 +471,20 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, [workers, shiftRecords, getContractorById, paidStatusMap]);
 
+  // Helper to verify subscription status in real-time
+  const isSubscriptionActive = useCallback(() => {
+    if (tenant?.isLocked) return false;
+    const status = tenant?.subscriptionStatus?.toLowerCase();
+    if (status === 'canceled' || status === 'suspended') return false;
+    if (tenant?.subscriptionExpiryDate) {
+      const expiryTimestamp = new Date(`${tenant.subscriptionExpiryDate}T23:59:59`).getTime();
+      if (!isNaN(expiryTimestamp) && expiryTimestamp < Date.now()) {
+        return false;
+      }
+    }
+    return true;
+  }, [tenant]);
+
   // Record Punch (In or Out)
   const recordPunch = (
     workerId: string,
@@ -416,6 +492,14 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     method: PunchMethod = 'pin',
     photoUrl?: string
   ): { success: boolean; worker?: Worker; punch?: TimePunch; message?: string } => {
+    // 1. Subscription & Super-Admin Lock Enforcement Check
+    if (!isSubscriptionActive()) {
+      return {
+        success: false,
+        message: 'Factory subscription expired or locked by Super-Admin. Punch rejected.',
+      };
+    }
+
     const worker = getWorkerById(workerId);
     if (!worker) {
       return { success: false, message: 'Worker record not found' };
@@ -461,7 +545,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Sync to Cloud Firestore if online
     if (!isOfflineMode) {
-      savePunchToFirestore(newPunch);
+      savePunchToFirestore(newPunch, currentTenantId);
     }
 
     // If punchType is 'out', close the shift record and compute final wage
@@ -500,7 +584,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setShiftRecords((prev) => [newRecord, ...prev]);
 
       if (!isOfflineMode) {
-        saveWageCalculationToFirestore(newRecord);
+        saveWageCalculationToFirestore(newRecord, currentTenantId);
       }
     }
 
@@ -510,6 +594,40 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       punch: newPunch,
       message: `Successfully clocked ${punchType.toUpperCase()}`,
     };
+  };
+
+  // 1-Tap Attendance Toggle (Dead-Simple Daily Present / Absent)
+  const toggleAttendance = (
+    workerId: string
+  ): { success: boolean; isPresent: boolean; message?: string } => {
+    const isCurrentlyPresent = activeFloorWorkers.some((a) => a.worker.id === workerId);
+    if (isCurrentlyPresent) {
+      const res = recordPunch(workerId, 'out', 'manual');
+      return { success: res.success, isPresent: false, message: res.message };
+    } else {
+      const res = recordPunch(workerId, 'in', 'manual');
+      return { success: res.success, isPresent: true, message: res.message };
+    }
+  };
+
+  // Mark All Workers Present or Absent
+  const markAllAttendance = (present: boolean): number => {
+    let count = 0;
+    if (present) {
+      const activeIds = new Set(activeFloorWorkers.map((a) => a.worker.id));
+      workers.forEach((w) => {
+        if (!activeIds.has(w.id)) {
+          const res = recordPunch(w.id, 'in', 'manual');
+          if (res.success) count++;
+        }
+      });
+    } else {
+      activeFloorWorkers.forEach((a) => {
+        const res = recordPunch(a.worker.id, 'out', 'manual');
+        if (res.success) count++;
+      });
+    }
+    return count;
   };
 
   // Force clock out an active worker
@@ -569,15 +687,15 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setShiftRecords((prev) => [autoRecord, ...prev]);
 
         if (!isOfflineMode) {
-          savePunchToFirestore(autoPunch);
-          saveWageCalculationToFirestore(autoRecord);
+          savePunchToFirestore(autoPunch, currentTenantId);
+          saveWageCalculationToFirestore(autoRecord, currentTenantId);
         }
         closedCount++;
       }
     });
 
     return closedCount;
-  }, [activeFloorWorkers, isOfflineMode]);
+  }, [activeFloorWorkers, isOfflineMode, currentTenantId]);
 
   // Toggle offline simulation mode
   const toggleOfflineMode = () => {
@@ -613,7 +731,54 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `wrk-${Date.now()}`,
     };
     setWorkers((prev) => [newWorker, ...prev]);
-    saveWorkerToFirestore(newWorker);
+    saveWorkerToFirestore(newWorker, currentTenantId);
+  };
+
+  // Bulk Add Workers from CSV / Excel Import
+  const bulkAddWorkers = (
+    newWorkerList: {
+      name: string;
+      phone?: string;
+      dailyWage?: number;
+      baseHourlyRate?: number;
+      department?: string;
+    }[]
+  ): number => {
+    const defaultShift = shifts[0] || DEFAULT_FALLBACK_SHIFT;
+    const defaultContractor = contractors[0] || DEFAULT_FALLBACK_CONTRACTOR;
+    const startCodeIndex = workers.length + 101;
+
+    const createdList: Worker[] = newWorkerList.map((item, idx) => {
+      const dailyWage = item.dailyWage ? Number(item.dailyWage) : 500;
+      const hourlyRate = item.baseHourlyRate
+        ? Number(item.baseHourlyRate)
+        : Math.round(dailyWage / 8);
+
+      const w: Worker = {
+        id: `wrk-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+        workerCode: `WRK-${startCodeIndex + idx}`,
+        name: item.name.trim(),
+        pin: String(Math.floor(1000 + Math.random() * 9000)),
+        contractorId: defaultContractor.id,
+        shiftId: defaultShift.id,
+        dailyWage,
+        baseHourlyRate: hourlyRate,
+        phone: item.phone && item.phone.trim() ? item.phone.trim() : 'N/A',
+        department: item.department && item.department.trim() ? item.department.trim() : 'Production Floor',
+        status: 'active',
+        joinedDate: new Date().toISOString().split('T')[0],
+      };
+      return w;
+    });
+
+    setWorkers((prev) => [...createdList, ...prev]);
+
+    // Save to Firestore
+    if (!isOfflineMode) {
+      createdList.forEach((w) => saveWorkerToFirestore(w, currentTenantId));
+    }
+
+    return createdList.length;
   };
 
   const updateWorker = (id: string, updates: Partial<Worker>) => {
@@ -621,7 +786,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       prev.map((w) => {
         if (w.id === id) {
           const updated = { ...w, ...updates };
-          saveWorkerToFirestore(updated);
+          saveWorkerToFirestore(updated, currentTenantId);
           return updated;
         }
         return w;
@@ -642,7 +807,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `cnt-${Date.now()}`,
     };
     setContractors((prev) => [...prev, newContractor]);
-    saveContractorToFirestore(newContractor);
+    saveContractorToFirestore(newContractor, currentTenantId);
   };
 
   const updateContractor = (id: string, updates: Partial<Contractor>) => {
@@ -650,7 +815,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       prev.map((c) => {
         if (c.id === id) {
           const updated = { ...c, ...updates };
-          saveContractorToFirestore(updated);
+          saveContractorToFirestore(updated, currentTenantId);
           return updated;
         }
         return c;
@@ -670,7 +835,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `shf-${Date.now()}`,
     };
     setShifts((prev) => [...prev, newShift]);
-    saveShiftToFirestore(newShift);
+    saveShiftToFirestore(newShift, currentTenantId);
   };
 
   const updateShift = (id: string, updates: Partial<Shift>) => {
@@ -678,7 +843,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       prev.map((s) => {
         if (s.id === id) {
           const updated = { ...s, ...updates };
-          saveShiftToFirestore(updated);
+          saveShiftToFirestore(updated, currentTenantId);
           return updated;
         }
         return s;
@@ -719,12 +884,20 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Clear all data back to fresh empty state []
   const clearAllData = () => {
-    localStorage.removeItem('factory_workers');
-    localStorage.removeItem('factory_shifts');
-    localStorage.removeItem('factory_contractors');
-    localStorage.removeItem('factory_punches');
-    localStorage.removeItem('factory_shift_records');
-    localStorage.removeItem('factory_paid_status_map');
+    localStorage.removeItem(`factory_workers_${currentTenantId}`);
+    localStorage.removeItem(`factory_shifts_${currentTenantId}`);
+    localStorage.removeItem(`factory_contractors_${currentTenantId}`);
+    localStorage.removeItem(`factory_punches_${currentTenantId}`);
+    localStorage.removeItem(`factory_shift_records_${currentTenantId}`);
+    localStorage.removeItem(`factory_paid_status_map_${currentTenantId}`);
+    if (currentTenantId === INITIAL_TENANT.id) {
+      localStorage.removeItem('factory_workers');
+      localStorage.removeItem('factory_shifts');
+      localStorage.removeItem('factory_contractors');
+      localStorage.removeItem('factory_punches');
+      localStorage.removeItem('factory_shift_records');
+      localStorage.removeItem('factory_paid_status_map');
+    }
     setWorkers([]);
     setShifts([]);
     setContractors([]);
@@ -752,9 +925,12 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         toggleOfflineMode,
         syncOfflineQueue,
         recordPunch,
+        toggleAttendance,
+        markAllAttendance,
         forceClockOut,
         runAutoCheckoutSafetyCheck,
         addWorker,
+        bulkAddWorkers,
         updateWorker,
         deleteWorker,
         addContractor,

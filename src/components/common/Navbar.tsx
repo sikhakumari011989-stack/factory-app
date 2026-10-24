@@ -11,24 +11,34 @@ import {
   ChevronDown,
   Sparkles,
   RotateCcw,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useFactory } from '../../context/FactoryContext';
 import { isFirebaseConfigured } from '../../lib/firebase';
 import { FirebaseConfigModal } from './FirebaseConfigModal';
 import { UserRole } from '../../types';
+import { ShieldAlert } from 'lucide-react';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
+  isSidebarCollapsed?: boolean;
+  onToggleDesktopCollapse?: () => void;
   onNavigateToLogin?: () => void;
   onOpenDbModal?: () => void;
+  onNavigateToCreator?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onToggleSidebar,
+  isSidebarOpen,
+  isSidebarCollapsed,
+  onToggleDesktopCollapse,
   onNavigateToLogin,
   onOpenDbModal,
+  onNavigateToCreator,
 }) => {
   const { user, role, tenant, switchRole, logout } = useAuth();
   const { isOfflineMode, offlineQueueCount, toggleOfflineMode, resetDemoData } = useFactory();
@@ -59,15 +69,32 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       <header className="sticky top-0 z-30 bg-slate-950/85 backdrop-blur-xl border-b border-slate-800/80 px-4 lg:px-7 py-3.5 flex items-center justify-between gap-4 shadow-sm">
-        {/* Left: Mobile Toggle & Brand */}
-        <div className="flex items-center gap-3.5">
+        {/* Left: Mobile Toggle & Brand & Desktop Collapse */}
+        <div className="flex items-center gap-2.5">
+          {/* Mobile Drawer Toggle Button */}
           <button
             onClick={onToggleSidebar}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors lg:hidden cursor-pointer"
-            aria-label="Toggle Navigation"
+            aria-label="Toggle Mobile Drawer"
           >
             <Menu className="w-5 h-5" />
           </button>
+
+          {/* Desktop Collapse / Expand Toggle Button */}
+          {onToggleDesktopCollapse && (
+            <button
+              onClick={onToggleDesktopCollapse}
+              className="hidden lg:flex p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer"
+              title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+              aria-label="Toggle Desktop Sidebar"
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen className="w-5 h-5 text-indigo-400" />
+              ) : (
+                <PanelLeftClose className="w-5 h-5 text-slate-400" />
+              )}
+            </button>
+          )}
 
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-emerald-400 via-teal-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
@@ -206,8 +233,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </button>
 
-                {onNavigateToLogin && (
+                {onNavigateToCreator && (
                   <div className="pt-1.5 mt-1 border-t border-slate-800">
+                    <button
+                      onClick={() => {
+                        setShowRoleMenu(false);
+                        onNavigateToCreator();
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs flex items-center gap-2.5 text-amber-400 hover:bg-slate-800/80 transition-colors cursor-pointer font-bold"
+                    >
+                      <ShieldAlert className="w-4 h-4 text-amber-400" />
+                      <span>Creator Master Portal (/master-creator)</span>
+                    </button>
+                  </div>
+                )}
+
+                {onNavigateToLogin && (
+                  <div className="pt-1 mt-1 border-t border-slate-800">
                     <button
                       onClick={() => {
                         setShowRoleMenu(false);

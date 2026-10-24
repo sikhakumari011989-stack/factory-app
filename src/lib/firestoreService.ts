@@ -26,6 +26,7 @@ import {
   PayrollSummaryItem,
   UserRole,
   Tenant,
+  SubscriptionStatus,
 } from '../types';
 
 export const COLLECTIONS = {
@@ -50,6 +51,13 @@ export interface OrgDocument {
   code: string;
   location: string;
   currency: string;
+  ownerEmail?: string;
+  ownerName?: string;
+  phone?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionExpiryDate?: string; // YYYY-MM-DD
+  isLocked?: boolean;
+  lockReason?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -66,6 +74,93 @@ export const getOrganization = async (orgId: string = DEFAULT_ORG_ID): Promise<O
     console.error('Error fetching organization:', err);
   }
   return null;
+};
+
+export const subscribeToOrganization = (
+  orgId: string,
+  onUpdate: (org: OrgDocument | null) => void
+): Unsubscribe => {
+  if (!isFirebaseConfigured() || !orgId) return () => {};
+  const docRef = doc(db, COLLECTIONS.ORGANIZATIONS, orgId);
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        onUpdate({ id: snap.id, ...snap.data() } as OrgDocument);
+      } else {
+        onUpdate(null);
+      }
+    },
+    (err) => console.warn('Firestore organization listener warning:', err)
+  );
+};
+
+export const getAllOrganizationsFromFirestore = async (): Promise<OrgDocument[]> => {
+  if (!isFirebaseConfigured()) return [];
+  try {
+    const q = query(collection(db, COLLECTIONS.ORGANIZATIONS), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrgDocument));
+  } catch (err) {
+    console.error('Error fetching organizations:', err);
+    return [];
+  }
+};
+
+export const updateOrganizationInFirestore = async (
+  orgId: string,
+  updates: Partial<OrgDocument>
+): Promise<void> => {
+  if (!isFirebaseConfigured()) return;
+  try {
+    const docRef = doc(db, COLLECTIONS.ORGANIZATIONS, orgId);
+    await updateDoc(docRef, { ...updates, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Error updating organization:', err);
+  }
+};
+
+export const updateOrganizationSubscription = async (
+  orgId: string,
+  updates: {
+    subscriptionStatus?: SubscriptionStatus;
+    subscriptionExpiryDate?: string;
+    isLocked?: boolean;
+    lockReason?: string;
+  }
+): Promise<void> => {
+  await updateOrganizationInFirestore(orgId, updates);
+};
+
+export const deleteOrganizationFromFirestore = async (orgId: string): Promise<void> => {
+  if (!isFirebaseConfigured()) return;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.ORGANIZATIONS, orgId));
+  } catch (err) {
+    console.error('Error deleting organization:', err);
+  }
+};
+
+export const getWorkerCountForOrganization = async (orgId: string): Promise<number> => {
+  if (!isFirebaseConfigured()) {
+    try {
+      const stored = localStorage.getItem(`factory_workers_${orgId}`);
+      if (stored) return JSON.parse(stored).length;
+    } catch {}
+    return 0;
+  }
+  try {
+    const q = query(collection(db, COLLECTIONS.WORKERS), where('organizationId', '==', orgId));
+    const snap = await getDocs(q);
+    return snap.size;
+  } catch (err) {
+    console.error(`Error fetching worker count for ${orgId}:`, err);
+    try {
+      const stored = localStorage.getItem(`factory_workers_${orgId}`);
+      if (stored) return JSON.parse(stored).length;
+    } catch {}
+    return 0;
+  }
 };
 
 export const saveOrganizationToFirestore = async (org: OrgDocument): Promise<void> => {
@@ -460,7 +555,12 @@ export interface ProvisionFactoryParams {
   location: string;
   ownerName: string;
   ownerEmail: string;
+  phone?: string;
   password?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionExpiryDate?: string; // YYYY-MM-DD
+  isLocked?: boolean;
+  lockReason?: string;
   currency?: string;
 }
 
@@ -475,6 +575,12 @@ export const provisionNewFactory = async (
   const orgId = `org-${cleanCode.toLowerCase()}-${Date.now().toString(36)}`;
   const currency = params.currency || '₹';
   const now = new Date().toISOString();
+  const subscriptionStatus = params.subscriptionStatus || 'active';
+
+  // Default to 30 days out if not manually specified
+  const default30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const subscriptionExpiryDate = params.subscriptionExpiryDate?.trim() || default30Days;
+  const isLocked = params.isLocked ?? false;
 
   const orgDoc: OrgDocument = {
     id: orgId,
@@ -482,6 +588,13 @@ export const provisionNewFactory = async (
     code: cleanCode,
     location: params.location.trim() || 'MIDC Industrial Estate, Tarapur/Palghar',
     currency,
+    ownerEmail: params.ownerEmail.trim().toLowerCase(),
+    ownerName: params.ownerName.trim(),
+    phone: params.phone?.trim() || '',
+    subscriptionStatus,
+    subscriptionExpiryDate,
+    isLocked,
+    lockReason: params.lockReason || '',
     createdAt: now,
     updatedAt: now,
   };
@@ -511,9 +624,39 @@ export const provisionNewFactory = async (
     name: 'Direct Plant Workforce',
     code: 'DIR',
     contactPerson: params.ownerName,
-    phone: '',
+    phone: params.phone?.trim() || '',
     email: params.ownerEmail,
   };
+
+  // Seed standard default shifts for the new plant
+  const defaultShifts: Shift[] = [
+    {
+      id: `shf-day-${orgId}`,
+      name: 'General Day Shift (8h)',
+      code: 'GEN-01',
+      startTime: '08:00',
+      endTime: '17:00',
+      crossesMidnight: false,
+      gracePeriodMinutes: 15,
+      standardHours: 8,
+      overtimeMultiplier: 1.5,
+      description: 'Standard 8-hour general manufacturing shift',
+      color: '#0284c7',
+    },
+    {
+      id: `shf-night-${orgId}`,
+      name: 'Night Production Shift (8h)',
+      code: 'NGT-02',
+      startTime: '20:00',
+      endTime: '04:00',
+      crossesMidnight: true,
+      gracePeriodMinutes: 15,
+      standardHours: 8,
+      overtimeMultiplier: 1.5,
+      description: 'Night operations shift crossing midnight',
+      color: '#8b5cf6',
+    },
+  ];
 
   if (isFirebaseConfigured()) {
     try {
@@ -521,12 +664,22 @@ export const provisionNewFactory = async (
       await saveUserToFirestore(ownerUser);
       await saveUserToFirestore(guardUser);
       await saveContractorToFirestore(directContractor, orgId);
+      for (const shift of defaultShifts) {
+        await saveShiftToFirestore(shift, orgId);
+      }
     } catch (e) {
       console.warn('Firestore write failed during provisioning, saving locally:', e);
     }
   }
 
+  // Pre-seed local storage for this tenant
   try {
+    localStorage.setItem(`factory_shifts_${orgId}`, JSON.stringify(defaultShifts));
+    localStorage.setItem(`factory_contractors_${orgId}`, JSON.stringify([directContractor]));
+    localStorage.setItem(`factory_workers_${orgId}`, JSON.stringify([]));
+    localStorage.setItem(`factory_punches_${orgId}`, JSON.stringify([]));
+    localStorage.setItem(`factory_shift_records_${orgId}`, JSON.stringify([]));
+
     const existingStr = localStorage.getItem('factory_provisioned_tenants');
     const existing = existingStr ? JSON.parse(existingStr) : [];
     existing.push({
@@ -538,12 +691,23 @@ export const provisionNewFactory = async (
         currency: orgDoc.currency,
         ownerEmail: params.ownerEmail,
         ownerName: params.ownerName,
+        phone: params.phone?.trim() || '',
+        subscriptionStatus,
+        subscriptionExpiryDate,
+        isLocked,
+        lockReason: params.lockReason || '',
         createdAt: now,
       },
       ownerEmail: params.ownerEmail,
       temporaryPassword: params.password || 'Factory@123',
       ownerName: params.ownerName,
+      phone: params.phone?.trim() || '',
+      subscriptionStatus,
+      subscriptionExpiryDate,
+      isLocked,
+      lockReason: params.lockReason || '',
       createdAt: now,
+      workerCount: 0,
     });
     localStorage.setItem('factory_provisioned_tenants', JSON.stringify(existing));
   } catch (e) {
@@ -559,6 +723,11 @@ export const provisionNewFactory = async (
       currency: orgDoc.currency,
       ownerEmail: params.ownerEmail,
       ownerName: params.ownerName,
+      phone: params.phone?.trim() || '',
+      subscriptionStatus,
+      subscriptionExpiryDate,
+      isLocked,
+      lockReason: params.lockReason || '',
       createdAt: now,
     },
     ownerUser,

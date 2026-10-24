@@ -9,6 +9,16 @@ export interface UserProfile {
   tenantId: string;
 }
 
+export type SubscriptionStatus =
+  | 'active'
+  | 'suspended'
+  | 'canceled'
+  | 'trial'
+  | 'Active'
+  | 'Suspended'
+  | 'Canceled'
+  | 'Trial';
+
 export interface Tenant {
   id: string;
   name: string;
@@ -17,7 +27,13 @@ export interface Tenant {
   currency: string;
   ownerEmail?: string;
   ownerName?: string;
+  phone?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionExpiryDate?: string; // YYYY-MM-DD
+  isLocked?: boolean;
+  lockReason?: string;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ProvisionedTenant {
@@ -25,7 +41,13 @@ export interface ProvisionedTenant {
   ownerEmail: string;
   temporaryPassword?: string;
   ownerName: string;
+  phone?: string;
+  subscriptionStatus: SubscriptionStatus;
+  subscriptionExpiryDate?: string; // YYYY-MM-DD
+  isLocked?: boolean;
+  lockReason?: string;
   createdAt: string;
+  workerCount?: number;
 }
 
 export interface Contractor {
@@ -60,6 +82,7 @@ export interface Worker {
   contractorId: string;
   shiftId: string;
   baseHourlyRate: number; // in local currency (e.g. ₹250)
+  dailyWage?: number; // e.g. ₹550 / day
   phone: string;
   department: string; // 'CNC Machining' | 'Assembly Line' | 'Quality Control' | 'Packaging' | 'Welding'
   status: 'active' | 'inactive';

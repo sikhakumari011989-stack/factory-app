@@ -31,22 +31,36 @@ export const PwaInstallBanner: React.FC = () => {
     const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
     setIsIos(isIosDevice);
 
+    // Pick up early captured prompt if it fired before React mounted
+    const earlyPrompt = (window as unknown as { __deferredPwaPrompt?: BeforeInstallPromptEvent }).__deferredPwaPrompt;
+    if (earlyPrompt) {
+      setDeferredPrompt(earlyPrompt);
+    }
+
     // Capture standard PWA install prompt on Android / Chrome / Edge
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
+    const handlePromptReady = () => {
+      const p = (window as unknown as { __deferredPwaPrompt?: BeforeInstallPromptEvent }).__deferredPwaPrompt;
+      if (p) setDeferredPrompt(p);
+    };
+
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
+      (window as unknown as { __deferredPwaPrompt?: BeforeInstallPromptEvent | null }).__deferredPwaPrompt = null;
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('pwa-prompt-ready', handlePromptReady);
     window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('pwa-prompt-ready', handlePromptReady);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
